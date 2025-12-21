@@ -10,11 +10,25 @@ import applicationRoutes from "./routes/applicationRoutes.js";
 
 dotenv.config();
 
-connectDB();
-
 const app = express();
 
-app.use(cors());
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://lms-client-cde7.onrender.com",
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  }),
+);
 
 app.use(express.json());
 app.use(morgan("dev"));
@@ -30,4 +44,6 @@ app.use("/api/applications", applicationRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, console.log(`Server running on port ${PORT}`));
+connectDB().then(() => {
+  app.listen(PORT, console.log(`Server running on port ${PORT}`));
+});
