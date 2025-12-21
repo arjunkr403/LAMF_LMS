@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import LoanProduct from "./models/LoanProduct.js";
@@ -28,7 +27,7 @@ const importData = async () => {
       },
     });
 
-    await User.deleteMany({ email: "admin@lamf.com" }); // Cleanup if partial
+    await User.deleteMany({ email: "admin@lamf.com" });
 
     const admin = new User({
       email: "admin@lamf.com",
