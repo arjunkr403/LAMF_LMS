@@ -19,7 +19,14 @@ const PrivateRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
 
   if (loading) return <div>Loading...</div>;
-  return user ? children : <Navigate to="/login" />;
+
+  if (!user) return <Navigate to="/login" />;
+
+  if (user.role === "ADMIN") {
+    return <Navigate to="/admin" />;
+  }
+
+  return children;
 };
 
 function App() {
