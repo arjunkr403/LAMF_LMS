@@ -13,67 +13,67 @@ const createApplication = async (req, res) => {
   try {
     const { productId, requestedLoanAmount, collateral } = req.body;
 
-    // 1. Validate Product
-    const product = await LoanProduct.findById(productId);
-    if (!product) {
-      throw new Error("Invalid Loan Product");
+    // Validation
+    if (!productId || !requestedLoanAmount || !collateral || collateral.length === 0) {
+      return res.status(400).json({ message: "productId, requestedLoanAmount, and at least one collateral entry are required." });
     }
-    if (!product.isActive) {
-      throw new Error("Loan Product is currently inactive");
+    if (isNaN(requestedLoanAmount) || requestedLoanAmount <= 0) {
+      return res.status(400).json({ message: "requestedLoanAmount must be a positive number." });
     }
 
-    // 2. Calculate Valuation & LTV
+    for (const item of collateral) {
+      if (!item.schemeName || !item.isin || !item.units || !item.currentNav) {
+        return res.status(400).json({ message: "Each collateral must have schemeName, isin, units, and currentNav." });
+      }
+      if (item.units <= 0 || item.currentNav <= 0) {
+        return res.status(400).json({ message: "Collateral units and NAV must be positive values." });
+      }
+    }
+
+    const product = await LoanProduct.findById(productId);
+    if (!product) return res.status(404).json({ message: "Loan product not found." });
+    if (!product.isActive) return res.status(400).json({ message: "Selected loan product is currently inactive." });
+
+    // Calculate collateral value
     let totalCollateralValue = 0;
     let totalLendingValue = 0;
     const collateralDocs = [];
 
     for (const item of collateral) {
       const itemTotalValue = item.units * item.currentNav;
-
-      const appliedLTV = product.maxLTV;
-
-      const itemLendingValue = itemTotalValue * (appliedLTV / 100);
-
+      const itemLendingValue = itemTotalValue * (product.maxLTV / 100);
       totalCollateralValue += itemTotalValue;
       totalLendingValue += itemLendingValue;
 
       collateralDocs.push({
-        amcName: "Generic AMC", // Placeholder or from input
+        amcName: item.amcName || "N/A",
         schemeName: item.schemeName,
-        isin: item.isin,
-        category: item.category,
+        isin: item.isin.toUpperCase(),
+        category: item.category || "EQUITY",
         unitsPledged: item.units,
         unitNav: item.currentNav,
         totalValue: itemTotalValue,
-        ltvApplied: appliedLTV,
+        ltvApplied: product.maxLTV,
         lendingValue: itemLendingValue,
       });
     }
 
-    // 3. LTV Check & Constraints
     if (requestedLoanAmount > totalLendingValue) {
-      // Fail immediately if collateral is insufficient
-      res.status(400).json({
-        message: "Insufficient Collateral",
+      await session.abortTransaction();
+      return res.status(400).json({
+        message: "Insufficient collateral for requested loan amount.",
         eligibleAmount: totalLendingValue,
         requested: requestedLoanAmount,
       });
-      await session.abortTransaction();
-      return;
     }
 
-    if (
-      requestedLoanAmount < product.minLoanAmount ||
-      requestedLoanAmount > product.maxLoanAmount
-    ) {
-      res.status(400).json({
-        message: `Loan amount must be between ${product.minLoanAmount} and ${product.maxLoanAmount}`,
+    if (requestedLoanAmount < product.minLoanAmount || requestedLoanAmount > product.maxLoanAmount) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        message: `Loan amount must be between ₹${product.minLoanAmount.toLocaleString()} and ₹${product.maxLoanAmount.toLocaleString()}.`,
       });
-      await session.abortTransaction();
-      return;
     }
 
-    // 4. Create Application
     const applicationId = `LAMF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const calculatedLTV = (requestedLoanAmount / totalCollateralValue) * 100;
 
@@ -90,14 +90,10 @@ const createApplication = async (req, res) => {
     });
 
     const createdApp = await application.save({ session });
-
-    // 5. Create Collateral Records
-    const collateralWithAppId = collateralDocs.map((doc) => ({
-      ...doc,
-      application: createdApp._id,
-    }));
-
-    await Collateral.insertMany(collateralWithAppId, { session });
+    await Collateral.insertMany(
+      collateralDocs.map((doc) => ({ ...doc, application: createdApp._id })),
+      { session }
+    );
 
     await session.commitTransaction();
 
@@ -108,53 +104,54 @@ const createApplication = async (req, res) => {
         applicationId: createdApp.applicationId,
         status: createdApp.status,
         eligibleLoanAmount: totalLendingValue,
-        calculatedLTV,
+        calculatedLTV: calculatedLTV.toFixed(2),
       },
     });
   } catch (error) {
     await session.abortTransaction();
-    console.error(error);
-    res.status(500).json({
-      message: error.message || "Server Error processing application",
-    });
+    console.error("createApplication error:", error);
+    res.status(500).json({ message: error.message || "Server error while processing application." });
   } finally {
     session.endSession();
   }
 };
 
-// @desc    Get user's applications
+// @desc    Get logged-in user's applications
 // @route   GET /api/applications
 // @access  Private
 const getMyApplications = async (req, res) => {
-  const applications = await LoanApplication.find({ applicant: req.user._id })
-    .populate("product", "name interestRate")
-    .sort({ createdAt: -1 });
-  res.json(applications);
+  try {
+    const applications = await LoanApplication.find({ applicant: req.user._id })
+      .populate("product", "name interestRate type")
+      .sort({ createdAt: -1 });
+    res.json(applications);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch applications." });
+  }
 };
 
-// @desc    Get single application details
+// @desc    Get single application by ID
 // @route   GET /api/applications/:id
 // @access  Private
 const getApplicationById = async (req, res) => {
-  const application = await LoanApplication.findById(req.params.id)
-    .populate("product")
-    .populate("applicant", "profile email");
+  try {
+    const application = await LoanApplication.findById(req.params.id)
+      .populate("product")
+      .populate("applicant", "profile email");
 
-  if (application) {
-    // Ensure user owns this application or is admin/partner
+    if (!application) return res.status(404).json({ message: "Application not found." });
+
     if (
       application.applicant._id.toString() !== req.user._id.toString() &&
       req.user.role !== "ADMIN"
     ) {
-      return res.status(401).json({ message: "Not authorized" });
+      return res.status(403).json({ message: "Not authorized to view this application." });
     }
 
-    // Fetch associated collateral
     const collateral = await Collateral.find({ application: application._id });
-
     res.json({ ...application.toObject(), collateral });
-  } else {
-    res.status(404).json({ message: "Application not found" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch application details." });
   }
 };
 
@@ -162,27 +159,45 @@ const getApplicationById = async (req, res) => {
 // @route   GET /api/applications/admin/all
 // @access  Private/Admin
 const getAllApplications = async (req, res) => {
-  const applications = await LoanApplication.find({})
-    .populate("applicant", "profile email")
-    .populate("product", "name")
-    .sort({ createdAt: -1 });
-  res.json(applications);
+  try {
+    const { status } = req.query;
+    const filter = status && status !== "ALL" ? { status } : {};
+
+    const applications = await LoanApplication.find(filter)
+      .populate("applicant", "profile email")
+      .populate("product", "name type")
+      .sort({ createdAt: -1 });
+
+    res.json(applications);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch all applications." });
+  }
 };
 
-// @desc    Update application status
+// @desc    Update application status (Admin)
 // @route   PUT /api/applications/:id/status
 // @access  Private/Admin
 const updateApplicationStatus = async (req, res) => {
-  const { status } = req.body;
+  try {
+    const { status, remarks } = req.body;
 
-  const application = await LoanApplication.findById(req.params.id);
+    const validStatuses = ["SUBMITTED", "UNDER_REVIEW", "APPROVED", "REJECTED", "DISBURSED"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    }
 
-  if (application) {
+    const application = await LoanApplication.findById(req.params.id);
+    if (!application) return res.status(404).json({ message: "Application not found." });
+
     application.status = status;
-    const updatedApplication = await application.save();
-    res.json(updatedApplication);
-  } else {
-    res.status(404).json({ message: "Application not found" });
+    if (remarks) application.adminRemarks = remarks;
+    application.reviewedBy = req.user._id;
+    application.reviewedAt = new Date();
+
+    const updated = await application.save();
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update status." });
   }
 };
 

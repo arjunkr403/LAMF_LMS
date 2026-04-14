@@ -1,139 +1,97 @@
-# Loan Management System (LMS) - Lending Against Mutual Funds (LAMF)
+# Loan Management System (LMS) — Lending Against Mutual Funds (LAMF)
 
-A full-stack fintech solution for managing loans secured by mutual fund collateral.
+A full-stack fintech portfolio project for managing loans secured by mutual fund collateral.
 
 ## 🚀 Tech Stack
 
-- **Frontend:** React.js, Tailwind CSS, shadcn/ui (Architecture)
-- **Backend:** Node.js, Express.js
+- **Frontend:** React 19, Vite, Tailwind CSS, shadcn/ui, Sonner (toasts)
+- **Backend:** Node.js, Express 5
 - **Database:** MongoDB, Mongoose
-- **Authentication:** JWT (JSON Web Tokens)
+- **Auth:** JWT (30-day tokens)
 
 ## 📂 Project Structure
 
 ```
 LMS/
-├── client/              # React Frontend
-│   ├── src/
-│   │   ├── components/  # Reusable UI components
-│   │   ├── context/     # Auth Context
-│   │   ├── pages/       # Application Pages
-│   │   └── lib/         # Utilities & Axios
-├── server/              # Node.js Backend
-│   ├── config/          # DB Connection
-│   ├── controllers/     # Business Logic
-│   ├── middleware/      # Auth Middleware
-│   ├── models/          # Mongoose Schemas
-│   └── routes/          # API Routes
-└── README.md
+├── client/                    # React Frontend (Vite)
+│   └── src/
+│       ├── components/        # Shared UI (shadcn)
+│       ├── context/           # AuthContext
+│       ├── pages/             # All pages
+│       └── lib/               # axios instance, utils
+└── server/                    # Node.js Backend
+    ├── config/                # DB connection
+    ├── controllers/           # Business logic
+    ├── middleware/            # JWT auth middleware
+    ├── models/                # Mongoose schemas
+    ├── routes/                # Express routes
+    └── seeder.js              # Database seeder
 ```
 
-## 🛠️ Setup & Installation
+## 🛠️ Setup
 
 ### Prerequisites
-- Node.js (v16+)
-- MongoDB (Running locally or Atlas URI)
+- Node.js v16+
+- MongoDB (local or Atlas)
 
-### 1. Backend Setup
+### 1. Backend
 ```bash
 cd server
 npm install
-# Create a .env file (optional, defaults provided in code for dev)
+# Optional: create .env (defaults provided)
 # MONGO_URI=mongodb://localhost:27017/lamf_lms
 # JWT_SECRET=secret123
 
-# Seed the Database (Creates Admin & Products)
-node seeder.js
-
-# Start Server
-npm start
-# Server runs on http://localhost:5000
+node seeder.js   # Seed demo data
+npm start        # Runs on http://localhost:5000
 ```
 
-### 2. Frontend Setup
+### 2. Frontend
 ```bash
 cd client
 npm install
-npm run dev
-# App runs on http://localhost:5173
+npm run dev      # Runs on http://localhost:5173
 ```
 
-## 🔑 Default Credentials (Seeded)
+## 🔑 Demo Credentials (after seeding)
 
-- **Borrower:** `user@example.com` / `password123`
-- **Admin:** `admin@lamf.com` / `password123`
+| Role     | Email                       | Password    |
+|----------|-----------------------------|-------------|
+| Admin    | admin@lamf.com              | password123 |
+| Borrower | rahul.verma@example.com     | password123 |
+| Borrower | anita.patel@example.com     | password123 |
 
-## 📡 API Documentation
+## 📡 API Reference
 
-### Authentication
-- `POST /api/users` - Register new user
-- `POST /api/users/login` - Login & Get Token
-- `GET /api/users/profile` - Get current user info (Protected)
+### Auth
+| Method | Endpoint             | Access  | Description          |
+|--------|----------------------|---------|----------------------|
+| POST   | /api/users           | Public  | Register new user    |
+| POST   | /api/users/login     | Public  | Login & get token    |
+| GET    | /api/users/profile   | Private | Get current user     |
 
-### Loan Products
-- `GET /api/products` - List all available loan schemes
-- `POST /api/products` - Create new product (Admin only)
+### Products
+| Method | Endpoint       | Access | Description        |
+|--------|----------------|--------|--------------------|
+| GET    | /api/products  | Public | List loan products |
+| POST   | /api/products  | Admin  | Create product     |
 
 ### Applications
-- `POST /api/applications` - Create new loan application
-  - **Body:**
-    ```json
-    {
-      "productId": "65b...",
-      "requestedLoanAmount": 500000,
-      "collateral": [
-        {
-          "schemeName": "HDFC Top 100",
-          "isin": "INF...",
-          "units": 1000,
-          "currentNav": 150
-        }
-      ]
-    }
-    ```
-- `GET /api/applications` - Get logged-in user's applications
-- `GET /api/applications/:id` - Get details of a specific application
+| Method | Endpoint                        | Access  | Description              |
+|--------|---------------------------------|---------|--------------------------|
+| POST   | /api/applications               | Private | Submit new application   |
+| GET    | /api/applications               | Private | My applications          |
+| GET    | /api/applications/:id           | Private | Single application       |
+| GET    | /api/applications/admin/all     | Admin   | All applications         |
+| GET    | /api/applications/admin/all?status=SUBMITTED | Admin | Filtered by status |
+| PUT    | /api/applications/:id/status    | Admin   | Update status + remarks  |
 
-## 🗄️ Database Schema
+## 🔄 Loan Workflow
 
-```mermaid
-erDiagram
-    User ||--o{ LoanApplication : applies
-    LoanProduct ||--o{ LoanApplication : defines_rules
-    LoanApplication ||--o{ Collateral : secured_by
-
-    User {
-        ObjectId _id
-        String email
-        String passwordHash
-        String role
-        Object profile
-    }
-
-    LoanProduct {
-        ObjectId _id
-        String name
-        Enum type
-        Number maxLTV
-        Number interestRate
-    }
-
-    LoanApplication {
-        ObjectId _id
-        String applicationId
-        Number requestedLoanAmount
-        Number eligibleLoanAmount
-        Number calculatedLTV
-        Enum status
-    }
-
-    Collateral {
-        ObjectId _id
-        String isin
-        String schemeName
-        Number unitsPledged
-        Number unitNav
-        Number totalValue
-        Number lendingValue
-    }
 ```
+User Submits → SUBMITTED → UNDER_REVIEW → APPROVED → DISBURSED
+                                        ↘ REJECTED
+```
+
+## 🗄️ Status Values
+`DRAFT` | `SUBMITTED` | `UNDER_REVIEW` | `APPROVED` | `REJECTED` | `DISBURSED`
